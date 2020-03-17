@@ -22,12 +22,15 @@
 #else
 // The default definition handles lwIP. Please add comments for other systems tested.
 #define EXTRACT_IPV4(ptr) ((struct sockaddr_in *) ptr->ai_addr)->sin_addr.s_addr
+// amz - ipv6 support 
+#define EXTRACT_IPV6(ptr) ((struct sockaddr_in6 *) ptr->ai_addr)->sin_addr6.s6_addr
 #endif
 
 typedef struct
 {
     char* hostname;
     uint32_t ip_v4;
+    unsigned char ip_v6[16];
     bool is_complete;
     bool is_failed;
 } DNS_ASYNC_INSTANCE;
@@ -106,7 +109,8 @@ bool dns_async_is_lookup_complete(DNS_ASYNC_HANDLE dns_in)
             // Setup the hints address info structure
             // which is passed to the getaddrinfo() function
             memset(&hints, 0, sizeof(hints));
-            hints.ai_family = AF_INET;
+            // amz -- change ai_family to AF_UNSPEC to account for AF_INET6
+            hints.ai_family = AF_UNSPEC;
             hints.ai_socktype = SOCK_STREAM;
             hints.ai_protocol = IPPROTO_TCP;
 
@@ -127,10 +131,24 @@ bool dns_async_is_lookup_complete(DNS_ASYNC_HANDLE dns_in)
                         /* Codes_SRS_DNS_ASYNC_30_032: [ If dns_async_is_create_complete has returned true and the lookup process has succeeded, dns_async_get_ipv4 shall return the discovered IPv4 address. ]*/
                         dns->ip_v4 = EXTRACT_IPV4(ptr);
                         break;
+                    // amz - extract ipv6 addresses
+                    case AF_INET6:
+                        dns->ip_v6 = EXTRACT_IPV6(ptr);
+                        break;
                     }
+
                 }
                 /* Codes_SRS_DNS_ASYNC_30_033: [ If dns_async_is_create_complete has returned true and the lookup process has failed, dns_async_get_ipv4 shall return 0. ]*/
-                dns->is_failed = (dns->ip_v4 == 0);
+                if (ptr->ai_family == AF_INET)
+                {
+                    dns->is_failed = (dns->ip_v4 == 0);
+                }
+                else if (ptr->ai_family == AF_INET6)
+                {
+                    dns->is_failed = (dns->ip_v6 == 0);
+                }
+
+                
                 freeaddrinfo(addrInfo);
             }
             else
@@ -195,6 +213,41 @@ uint32_t dns_async_get_ipv4(DNS_ASYNC_HANDLE dns_in)
             /* Codes_SRS_DNS_ASYNC_30_031: [ If dns_async_is_create_complete has not yet returned true, dns_async_get_ipv4 shall log an error and return 0. ]*/
             LogError("dns_async_get_ipv4 when not complete");
             result = 0;
+        }
+    }
+    return result;
+}
+
+unsigned char*  dns_async_get_ipv6(DNS_ASYNC_HANDLE dns_in)
+{
+    DNS_ASYNC_INSTANCE* dns = (DNS_ASYNC_INSTANCE*)dns_in;
+    unsigned char result[16];
+    if (dns == NULL)
+    {
+        /* Codes_SRS_DNS_ASYNC_30_030: [ If the dns parameter is NULL, dns_async_get_ipv4 shall log an error and return 0. ]*/
+        LogError("NULL dns");
+        result = NULL;
+    }
+    else
+    {
+        if (dns->is_complete)
+        {
+            if (dns->is_failed)
+            {
+                /* Codes_SRS_DNS_ASYNC_30_033: [ If dns_async_is_create_complete has returned true and the lookup process has failed, dns_async_get_ipv4 shall return 0. ]*/
+                result = NULL;
+            }
+            else
+            {
+                /* Codes_SRS_DNS_ASYNC_30_032: [ If dns_async_is_create_complete has returned true and the lookup process has succeeded, dns_async_get_ipv4 shall return the discovered IPv4 address. ]*/
+                result = dns->ip_v6;
+            }
+        }
+        else
+        {
+            /* Codes_SRS_DNS_ASYNC_30_031: [ If dns_async_is_create_complete has not yet returned true, dns_async_get_ipv4 shall log an error and return 0. ]*/
+            LogError("dns_async_get_ipv4 when not complete");
+            result = NULL;
         }
     }
     return result;
